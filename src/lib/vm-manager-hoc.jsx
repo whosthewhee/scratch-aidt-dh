@@ -1,18 +1,18 @@
-import bindAll from 'lodash.bindall';
-import PropTypes from 'prop-types';
-import React from 'react';
-import {connect} from 'react-redux';
+import bindAll from "lodash.bindall";
+import PropTypes from "prop-types";
+import React from "react";
+import { connect } from "react-redux";
 
-import VM from 'scratch-vm';
-import AudioEngine from 'scratch-audio';
+import VM from "scratch-vm";
+import AudioEngine from "scratch-audio";
 
-import {setProjectUnchanged} from '../reducers/project-changed';
+import { setProjectUnchanged } from "../reducers/project-changed";
 import {
     LoadingStates,
     getIsLoadingWithId,
     onLoadedProject,
-    projectError
-} from '../reducers/project-state';
+    projectError,
+} from "../reducers/project-state";
 
 /*
  * Higher Order Component to manage events emitted by the VM
@@ -21,13 +21,16 @@ import {
  */
 const vmManagerHOC = function (WrappedComponent) {
     class VMManager extends React.Component {
-        constructor (props) {
+        constructor(props) {
             super(props);
-            bindAll(this, [
-                'loadProject'
-            ]);
+            bindAll(this, ["loadProject"]);
+            this.audioEngine = null; // 초기에는 null로 설정
         }
-        componentDidMount () {
+        componentDidMount() {
+            // 사용자 제스처 이벤트 리스너 추가
+            document.addEventListener("mousedown", this.handleUserGesture);
+            document.addEventListener("touchstart", this.handleUserGesture);
+
             if (!this.props.vm.initialized) {
                 this.audioEngine = new AudioEngine();
                 this.props.vm.attachAudioEngine(this.audioEngine);
@@ -39,11 +42,30 @@ const vmManagerHOC = function (WrappedComponent) {
                 this.props.vm.start();
             }
         }
-        componentDidUpdate (prevProps) {
+        componentWillUnmount() {
+            // 사용자 제스처 이벤트 리스너 제거
+            document.removeEventListener("mousedown", this.handleUserGesture);
+            document.removeEventListener("touchstart", this.handleUserGesture);
+        }
+        handleUserGesture() {
+            // AudioEngine 초기화
+            if (!this.audioEngine) {
+                this.audioEngine = new AudioEngine();
+                this.props.vm.attachAudioEngine(this.audioEngine);
+            }
+
+            // 사용자 제스처 이벤트 리스너 제거
+            document.removeEventListener("mousedown", this.handleUserGesture);
+            document.removeEventListener("touchstart", this.handleUserGesture);
+        }
+        componentDidUpdate(prevProps) {
             // if project is in loading state, AND fonts are loaded,
             // and they weren't both that way until now... load project!
-            if (this.props.isLoadingWithId && this.props.fontsLoaded &&
-                (!prevProps.isLoadingWithId || !prevProps.fontsLoaded)) {
+            if (
+                this.props.isLoadingWithId &&
+                this.props.fontsLoaded &&
+                (!prevProps.isLoadingWithId || !prevProps.fontsLoaded)
+            ) {
                 this.loadProject();
             }
             // Start the VM if entering editor mode with an unstarted vm
@@ -51,10 +73,18 @@ const vmManagerHOC = function (WrappedComponent) {
                 this.props.vm.start();
             }
         }
-        loadProject () {
-            return this.props.vm.loadProject(this.props.projectData)
+        loadProject() {
+            if (!this.audioEngine) {
+                this.audioEngine = new AudioEngine();
+                this.props.vm.attachAudioEngine(this.audioEngine);
+            }
+            return this.props.vm
+                .loadProject(this.props.projectData)
                 .then(() => {
-                    this.props.onLoadedProject(this.props.loadingState, this.props.canSave);
+                    this.props.onLoadedProject(
+                        this.props.loadingState,
+                        this.props.canSave
+                    );
                     // Wrap in a setTimeout because skin loading in
                     // the renderer can be async.
                     setTimeout(() => this.props.onSetProjectUnchanged());
@@ -70,11 +100,11 @@ const vmManagerHOC = function (WrappedComponent) {
                         setTimeout(() => this.props.vm.renderer.draw());
                     }
                 })
-                .catch(e => {
+                .catch((e) => {
                     this.props.onError(e);
                 });
         }
-        render () {
+        render() {
             const {
                 /* eslint-disable no-unused-vars */
                 fontsLoaded,
@@ -117,10 +147,10 @@ const vmManagerHOC = function (WrappedComponent) {
         projectData: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
         projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
         username: PropTypes.string,
-        vm: PropTypes.instanceOf(VM).isRequired
+        vm: PropTypes.instanceOf(VM).isRequired,
     };
 
-    const mapStateToProps = state => {
+    const mapStateToProps = (state) => {
         const loadingState = state.scratchGui.projectState.loadingState;
         return {
             fontsLoaded: state.scratchGui.fontsLoaded,
@@ -131,27 +161,22 @@ const vmManagerHOC = function (WrappedComponent) {
             projectId: state.scratchGui.projectState.projectId,
             loadingState: loadingState,
             isPlayerOnly: state.scratchGui.mode.isPlayerOnly,
-            isStarted: state.scratchGui.vmStatus.started
+            isStarted: state.scratchGui.vmStatus.started,
         };
     };
 
-    const mapDispatchToProps = dispatch => ({
-        onError: error => dispatch(projectError(error)),
+    const mapDispatchToProps = (dispatch) => ({
+        onError: (error) => dispatch(projectError(error)),
         onLoadedProject: (loadingState, canSave) =>
             dispatch(onLoadedProject(loadingState, canSave, true)),
-        onSetProjectUnchanged: () => dispatch(setProjectUnchanged())
+        onSetProjectUnchanged: () => dispatch(setProjectUnchanged()),
     });
 
     // Allow incoming props to override redux-provided props. Used to mock in tests.
-    const mergeProps = (stateProps, dispatchProps, ownProps) => Object.assign(
-        {}, stateProps, dispatchProps, ownProps
-    );
+    const mergeProps = (stateProps, dispatchProps, ownProps) =>
+        Object.assign({}, stateProps, dispatchProps, ownProps);
 
-    return connect(
-        mapStateToProps,
-        mapDispatchToProps,
-        mergeProps
-    )(VMManager);
+    return connect(mapStateToProps, mapDispatchToProps, mergeProps)(VMManager);
 };
 
 export default vmManagerHOC;
